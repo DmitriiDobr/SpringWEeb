@@ -123,6 +123,9 @@ public class Server {
                 // получили handler
                 Handler handler = handlers.get(request.getRequestLine().getMethod())
                         .get(request.getRequestLine().getPath());
+                System.out.println("request line method "+handlers.get(request.getRequestLine().getMethod()));
+                System.out.println("request Path " +request.getRequestLine().getPath());
+                System.out.println("Handler "+ handler);
                 handler.handle(request, out);
             } catch (IOException e) {
                 e.printStackTrace();

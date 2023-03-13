@@ -66,7 +66,6 @@ public class MainServer {
             }
         };
         server.addHandler("GET","/classic.html",classicHtml);
-
         System.out.println(server.handlers);
         server.listen(9999);
     }
