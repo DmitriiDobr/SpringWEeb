@@ -70,6 +70,7 @@ public class Server {
 
                 // читаем request line
                 final String[] parts = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
+                System.out.println(parts);
                 if (parts.length != 3) {
                     badRequest(out);
                     return;
@@ -83,6 +84,7 @@ public class Server {
 
                 // получили request line
                 RequestLine requestLine = new RequestLine(parts[0], parts[1], parts[2]);
+                System.out.println(requestLine);
 
                 // ищем заголовки
                 final byte[] headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
@@ -123,10 +125,12 @@ public class Server {
                 // получили handler
                 Handler handler = handlers.get(request.getRequestLine().getMethod())
                         .get(request.getRequestLine().getPath());
-                System.out.println("request line method "+handlers.get(request.getRequestLine().getMethod()));
-                System.out.println("request Path " +request.getRequestLine().getPath());
-                System.out.println("Handler "+ handler);
+                if (handler==null){
+                    badRequest(out);
+                    return;
+                }
                 handler.handle(request, out);
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -149,6 +153,9 @@ public class Server {
                         "\r\n"
         ).getBytes());
         out.flush();
+    }
+    public static void getSetBody(BufferedInputStream in,String method,RequestLine requestLine){
+
     }
 
     // from google guava with modifications

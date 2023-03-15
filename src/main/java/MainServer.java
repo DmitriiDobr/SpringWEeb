@@ -37,12 +37,10 @@ public class MainServer {
 
         };
 
+        addAllHandlers(server,validPaths,defaultHandler);
 
-        for (String validPath : validPaths) {
-            if (!validPath.equals("/classic.html")) {
-                server.addHandler("GET", validPath, defaultHandler);
-            }
-        }
+
+
         Handler classicHtml = (request, responseStream) -> {
             try {
                 final var filePath = Path.of(".", "public", "/classic.html");
@@ -68,6 +66,13 @@ public class MainServer {
         server.addHandler("GET","/classic.html",classicHtml);
         System.out.println(server.handlers);
         server.listen(9999);
+    }
+    public static void addAllHandlers(Server server,List<String> validPaths ,Handler defaultHandler){
+        for (String validPath : validPaths) {
+            if (!validPath.equals("/classic.html")) {
+                server.addHandler("GET", validPath, defaultHandler);
+            }
+        }
     }
 
 
