@@ -1,15 +1,20 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 
+
+
 public class Server {
+
+    public final Map<String, Map<String, Handler>> handlers = new ConcurrentHashMap<>();
 
 
     public void listen(int port) throws IOException {
@@ -27,86 +32,145 @@ public class Server {
         }
     }
 
+    public void addHandler(String method, String path, Handler handler){
+        Map<String, Handler> map = new ConcurrentHashMap<>();
+        if (handlers.containsKey(method)) {
+            map = handlers.get(method);
+        }
+        map.put(path, handler);
+        handlers.put(method, map);
+    }
+
     private class ClientHandler extends Thread {
-        private final BufferedReader in;
+        private final BufferedInputStream in;
         private final BufferedOutputStream out;
 
         public ClientHandler(Socket socket) throws IOException {
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            in = new BufferedInputStream(socket.getInputStream());
             out = new BufferedOutputStream(socket.getOutputStream());
         }
 
-
         @Override
         public void run() {
-            final var validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
-            try {
+            try{
+                // лимит на request line + заголовки
+                final int limit = 4096;
 
+                in.mark(limit);
+                final byte[] buffer = new byte[limit];
+                final int read = in.read(buffer);
 
-                final var requestLine = in.readLine();
+                // ищем request line
+                final byte[] requestLineDelimiter = new byte[]{'\r', '\n'};
+                final int requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
+                if (requestLineEnd == -1) {
+                    badRequest(out);
+                    return;
+                }
 
-
-                final var parts = requestLine.split(" ");
-
+                // читаем request line
+                final String[] parts = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
+                System.out.println(parts);
                 if (parts.length != 3) {
-                    // just close socket
-                    in.close();
-                    out.close();
+                    badRequest(out);
+                    return;
                 }
 
-                final var path = parts[1];
-                if (!validPaths.contains(path)) {
-                    out.write((
-                            "HTTP/1.1 404 Not Found\r\n" +
-                                    "Content-Length: 0\r\n" +
-                                    "Connection: close\r\n" +
-                                    "\r\n"
-                    ).getBytes());
-                    out.flush();
+                // проверяем, валидный ли путь
+                if (!parts[1].startsWith("/")) {
+                    badRequest(out);
+                    return;
                 }
 
-                final var filePath = Path.of(".", "public", path);
-                final var mimeType = Files.probeContentType(filePath);
+                // получили request line
+                RequestLine requestLine = new RequestLine(parts[0], parts[1], parts[2]);
+                System.out.println(requestLine);
 
-                // special case for classic
-                if (path.equals("/classic.html")) {
-                    final var template = Files.readString(filePath);
-                    final var content = template.replace(
-                            "{time}",
-                            LocalDateTime.now().toString()
-                    ).getBytes();
-                    out.write((
-                            "HTTP/1.1 200 OK\r\n" +
-                                    "Content-Type: " + mimeType + "\r\n" +
-                                    "Content-Length: " + content.length + "\r\n" +
-                                    "Connection: close\r\n" +
-                                    "\r\n"
-                    ).getBytes());
-                    out.write(content);
-                    out.flush();
+                // ищем заголовки
+                final byte[] headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
+                final int headersStart = requestLineEnd + requestLineDelimiter.length;
+                final int headersEnd = indexOf(buffer, headersDelimiter, headersStart, read);
+                if (headersEnd == -1) {
+                    badRequest(out);
+                    return;
                 }
 
-                final var length = Files.size(filePath);
-                out.write((
-                        "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: " + mimeType + "\r\n" +
-                                "Content-Length: " + length + "\r\n" +
-                                "Connection: close\r\n" +
-                                "\r\n"
-                ).getBytes());
-                Files.copy(filePath, out);
-                out.flush();
+                // отматываем на начало буфера
+                in.reset();
 
+                // пропускаем requestLine
+                in.skip(headersStart);
+
+                // получили заголовки
+                final byte[] headersBytes = in.readNBytes(headersEnd - headersStart);
+                final List<String> headers = Arrays.asList(new String(headersBytes).split("\r\n"));
+
+                // получили запрос, теперь проверим, есть ли у запроса тело
+                Request request = new Request(requestLine, headers);
+
+                // для GET тело МОЖЕТ быть, но общепринято его игнорировать
+                if (!requestLine.getMethod().equals("GET")) {
+                    in.skip(headersDelimiter.length);
+                    // вычитываем Content-Length, чтобы прочитать body
+                    final Optional<String> contentLength = extractHeader(headers, "Content-Length");
+                    if (contentLength.isPresent()) {
+                        final int length = Integer.parseInt(contentLength.get());
+                        final byte[] bodyBytes = in.readNBytes(length);
+
+                        final String body = new String(bodyBytes);
+                        request.setBody(body);
+                    }
+                }
+
+                // получили handler
+                Handler handler = handlers.get(request.getRequestLine().getMethod())
+                        .get(request.getRequestLine().getPath());
+                if (handler==null){
+                    badRequest(out);
+                    return;
+                }
+                handler.handle(request, out);
 
             } catch (IOException e) {
                 e.printStackTrace();
             }
-
         }
+    }
 
+    private static Optional<String> extractHeader(List<String> headers, String header) {
+        return headers.stream()
+                .filter(o -> o.startsWith(header))
+                .map(o -> o.substring(o.indexOf(" ")))
+                .map(String::trim)
+                .findFirst();
+    }
 
-
+    private static void badRequest(BufferedOutputStream out) throws IOException {
+        out.write((
+                "HTTP/1.1 400 Bad Request\r\n" +
+                        "Content-Length: 0\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+        ).getBytes());
+        out.flush();
+    }
+    public static void getSetBody(BufferedInputStream in,String method,RequestLine requestLine){
 
     }
 
+    // from google guava with modifications
+    private static int indexOf(byte[] array, byte[] target, int start, int max) {
+        outer:
+        for (int i = start; i < max - target.length + 1; i++) {
+            for (int j = 0; j < target.length; j++) {
+                if (array[i + j] != target[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
 }
+
+
