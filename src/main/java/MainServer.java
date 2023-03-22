@@ -64,7 +64,6 @@ public class MainServer {
             }
         };
         server.addHandler("GET","/classic.html",classicHtml);
-        System.out.println(server.handlers);
         server.listen(9999);
     }
     public static void addAllHandlers(Server server,List<String> validPaths ,Handler defaultHandler){

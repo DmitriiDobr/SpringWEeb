@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,6 @@ public class Server {
 
                 // читаем request line
                 final String[] parts = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
-                System.out.println(parts);
                 if (parts.length != 3) {
                     badRequest(out);
                     return;
@@ -84,8 +84,6 @@ public class Server {
 
                 // получили request line
                 RequestLine requestLine = new RequestLine(parts[0], parts[1], parts[2]);
-                System.out.println(requestLine);
-
                 // ищем заголовки
                 final byte[] headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
                 final int headersStart = requestLineEnd + requestLineDelimiter.length;
@@ -107,6 +105,10 @@ public class Server {
 
                 // получили запрос, теперь проверим, есть ли у запроса тело
                 Request request = new Request(requestLine, headers);
+                //добавили query params
+                request.setQueryParam(request.getQueryParams());
+                System.out.printf("Параметры запроса: %s.\n",request.getQueryParams());
+                System.out.printf("Значение параметра title: %s.",request.getQueryParam("title"));
 
                 // для GET тело МОЖЕТ быть, но общепринято его игнорировать
                 if (!requestLine.getMethod().equals("GET")) {
@@ -131,7 +133,7 @@ public class Server {
                 }
                 handler.handle(request, out);
 
-            } catch (IOException e) {
+            } catch (IOException | URISyntaxException e) {
                 e.printStackTrace();
             }
         }
@@ -171,6 +173,7 @@ public class Server {
         }
         return -1;
     }
+
 }
 
 
